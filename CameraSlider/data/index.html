@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>CameraSlider</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <span class="dot" id="conn" title="Connection to slider"></span>
+  <h1>CameraSlider</h1>
+  <span class="badge err" id="hdrHome">Not homed</span>
+</header>
+
+<div class="banner" id="jmpWarn" hidden>⚠ Reset jumper is removed – settings will be cleared on next boot.</div>
+
+<main id="app" class="locked">
+
+  <!-- ===================== STATUS ===================== -->
+  <section class="card">
+    <div class="row between end">
+      <div>
+        <div class="hint">Current position</div>
+        <div class="pos"><span id="pos">–</span> <small>mm</small></div>
+      </div>
+      <div class="right">
+        <span class="badge" id="state">–</span>
+        <div class="hint" id="phase"></div>
+      </div>
+    </div>
+
+    <div class="railwrap">
+      <div class="rail" id="rail" title="Click to pick a target position">
+        <div class="rng" id="vRng"></div>
+        <div class="tgt" id="vTgt"></div>
+        <div class="car" id="vCar"></div>
+      </div>
+      <div class="scale"><span>⌂ 0</span><span id="vRngLbl"></span><span id="vMax">– mm</span></div>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><b>Speed</b><span id="spd">–</span></div>
+      <div class="stat"><b>Target</b><span id="tgt">–</span></div>
+      <div class="stat"><b>Cycles</b><span id="cyc">–</span></div>
+      <div class="stat"><b>Wait</b><span id="wait">–</span></div>
+      <div class="stat"><b>Sensor</b><span id="hall">–</span></div>
+      <div class="stat"><b>Driver</b><span id="drv">–</span></div>
+    </div>
+
+    <div class="row">
+      <button class="pri big" id="bHome">⌂ Home</button>
+      <button class="stop big" id="bStop">■ STOP</button>
+      <button class="big" id="bOff">Release motor</button>
+    </div>
+    <div class="hint mt">Space / Esc = STOP</div>
+  </section>
+
+  <!-- ===================== MANUAL ===================== -->
+  <section class="card">
+    <h2>Manual positioning</h2>
+    <div class="row end">
+      <label class="f grow">Target position [mm]
+        <input type="number" id="gotoPos" step="0.1" min="0" inputmode="decimal">
+      </label>
+      <button class="pri needhome" id="bGoto">Go to position</button>
+    </div>
+    <div class="hint mt">Tip: click the rail above to pick a target position.</div>
+
+    <div class="jog mt needhome">
+      <button data-d="-10">−10</button>
+      <button data-d="-1">−1</button>
+      <button data-d="-0.1">−0.1</button>
+      <button data-d="0.1">+0.1</button>
+      <button data-d="1">+1</button>
+      <button data-d="10">+10</button>
+    </div>
+    <div class="row mt needhome">
+      <button class="big hold" data-dir="-1">◀ Hold</button>
+      <button class="big hold" data-dir="1">Hold ▶</button>
+    </div>
+    <label class="f mt narrow">Jog speed [mm/s]
+      <input type="number" step="0.1" min="0.1" data-g="motion" data-k="jogSpeed">
+    </label>
+  </section>
+
+  <!-- ===================== AUTO ===================== -->
+  <section class="card">
+    <h2>Automatic mode <span class="hint" id="saved"></span></h2>
+    <div class="grid grid5">
+      <label class="f">From [mm]<input type="number" step="0.1" min="0" data-g="motion" data-k="rangeFrom"></label>
+      <label class="f">To [mm]<input type="number" step="0.1" min="0" data-g="motion" data-k="rangeTo"></label>
+      <label class="f">Speed out (away from ⌂) [mm/s]<input type="number" step="0.01" min="0.01" data-g="motion" data-k="speedOut"></label>
+      <label class="f">Speed back (towards ⌂) [mm/s]<input type="number" step="0.01" min="0.01" data-g="motion" data-k="speedIn"></label>
+      <label class="f">Acceleration [mm/s²]<input type="number" step="1" min="1" data-g="motion" data-k="accel"></label>
+      <label class="f">Wait at far end [s]<input type="number" step="0.1" min="0" data-g="motion" data-k="waitFar"></label>
+      <label class="f">Wait at near end [s]<input type="number" step="0.1" min="0" data-g="motion" data-k="waitNear"></label>
+      <label class="f" title="Distance over which acceleration itself ramps up/down (jerk limit). 0 = abrupt start/stop, larger = softer.">Start/stop smoothing [mm]<input type="number" step="0.5" min="0" data-g="motion" data-k="smooth"></label>
+    </div>
+    <div class="hint mt">Parameters are saved automatically. Speeds and waits apply immediately, the From/To range on next start.</div>
+
+    <div class="grid mt">
+      <div class="sub">
+        <h3>Cycle mode</h3>
+        <div class="seg">
+          <input type="radio" name="ci" id="ci1" value="1" data-g="motion" data-k="cycleInfinite"><label for="ci1">∞ Infinite</label>
+          <input type="radio" name="ci" id="ci0" value="0" data-g="motion" data-k="cycleInfinite"><label for="ci0">Count</label>
+        </div>
+        <label class="f" id="cntWrap">Number of cycles<input type="number" step="1" min="1" data-g="motion" data-k="cycleCount"></label>
+        <button class="ok needhome" id="bCycle">▶ Start cycling</button>
+      </div>
+      <div class="sub">
+        <h3>Single cycle</h3>
+        <div class="seg">
+          <input type="radio" name="sw" id="sw1" value="1" data-g="motion" data-k="singleOneWay"><label for="sw1">From → To</label>
+          <input type="radio" name="sw" id="sw0" value="0" data-g="motion" data-k="singleOneWay"><label for="sw0">From → To → From</label>
+        </div>
+        <div class="hint">The carriage first moves to “From”.</div>
+        <button class="ok needhome" id="bSingle">▶ Start single cycle</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== CONFIGURATION ===================== -->
+  <details class="card">
+    <summary>Configuration</summary>
+    <div class="grid">
+      <label class="f">Max position [mm]<input type="number" step="1" min="10" data-g="config" data-k="maxPos"></label>
+      <label class="f">Full steps / 100 mm<input type="number" step="0.01" min="1" data-g="config" data-k="steps100"></label>
+      <label class="f">Microstepping
+        <select data-g="config" data-k="microsteps">
+          <option>1</option><option>2</option><option>4</option><option>8</option><option>16</option>
+          <option>32</option><option>64</option><option>128</option><option>256</option>
+        </select>
+      </label>
+      <label class="f">Motor current RMS [mA]<input type="number" step="50" min="100" max="2000" data-g="config" data-k="currentMa"></label>
+      <label class="f">Homing speed [mm/s]<input type="number" step="0.5" min="0.5" data-g="config" data-k="homeSpeed"></label>
+    </div>
+    <div class="row mt wrapgap">
+      <label class="c"><input type="checkbox" data-g="config" data-k="stealthChop"> StealthChop (silent)</label>
+      <label class="c"><input type="checkbox" data-g="config" data-k="dirInvert"> Invert direction</label>
+      <label class="c"><input type="checkbox" data-g="config" data-k="hallActiveLow"> Home sensor active LOW</label>
+    </div>
+    <div class="hint mt" id="spmInfo"></div>
+    <div class="hint">Full steps without microstepping, e.g. 200-step motor + GT2 20T pulley (40 mm/rev) = 500. Changing microstepping or direction requires new homing.</div>
+    <div class="row mt">
+      <button class="pri" id="bCfg">Save configuration</button>
+      <button class="stop" id="bFactory">Factory reset</button>
+    </div>
+  </details>
+
+  <!-- ===================== WIFI ===================== -->
+  <details class="card">
+    <summary>WiFi</summary>
+    <div id="wifiInfo" class="hint"></div>
+    <div class="row mt">
+      <button id="bScan">Scan networks</button>
+    </div>
+    <div class="nets mt" id="nets"></div>
+    <div class="grid mt">
+      <label class="f">SSID<input type="text" id="wSsid" maxlength="32" autocomplete="off"></label>
+      <label class="f">Password<input type="password" id="wPass" maxlength="64" placeholder="empty = open network"></label>
+    </div>
+    <div class="row mt">
+      <button class="pri" id="bWifi">Save &amp; connect</button>
+      <button id="bWifiForget">Forget network</button>
+    </div>
+    <div class="hint mt">The “CameraSlider” access point always stays on. Once connected to your network the UI is also at <b>http://cameraslider.local</b>.</div>
+  </details>
+</main>
+
+<div id="toasts"></div>
+<script src="app.js"></script>
+</body>
+</html>
