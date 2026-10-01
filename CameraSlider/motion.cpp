@@ -120,7 +120,8 @@ void Motion::applyDriverSettings() {
   driver.GSTAT(0b111);             // smazat příznak resetu
 
   // ověření zpětným čtením – ověří i to, že zápisy prošly
-  driverOk = driverResponds() && driver.microsteps() == cfg.microsteps;
+  uint16_t msRead = driver.microsteps();           // TMCStepper vrací 0 pro celé kroky
+  driverOk = driverResponds() && (msRead ? msRead : 1) == cfg.microsteps;
   drvFailRow = 0;
   if (!driverOk) emit("TMC2209 not responding over UART – check PDN_UART, TX/RX and VIO supply", true);
   else Serial.printf("[motion] TMC2209 OK, %u mA, 1/%u\n", cfg.currentMa, cfg.microsteps);
