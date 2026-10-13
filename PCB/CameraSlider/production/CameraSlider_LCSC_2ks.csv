@@ -1,0 +1,18 @@
+Comment,Designator,Qty per board,Qty for 2 boards,Order Quantity,LCSC Part Number,Manufacturer Part Number,Manufacturer,Note
+1N5822 40V 3A Schottky,D1,1,2,5,C2476,1N5822,MDD,DO-201AD
+DC-DC 5V 1A (R-78E compatible),U3,1,2,2,C2992391,K7805-1000R3,YLPTEC,pinout Vin-GND-Vout same as R-78E5.0-1.0
+100uF 35V low ESR D6.3x11 P2.5,C1,1,2,10,C109392,35ZLH100MEFC6.3X11,Rubycon,
+10uF 25V D5x11 P2.0,C3,1,2,20,C47344176,ERG25V10M5X11,JIERR,
+22uF 25V D5x11 P2.0,C4,1,2,5,C1591825,25TWL22MEFC5X11,Rubycon,
+100nF 50V X7R 1206,C2,1,2,20,C110253,1206B104K500NT,FH,SMD 1206
+1nF 50V X7R THT P5mm,C5,1,2,10,C694552,FG28X7R1H102KNT06,TDK,
+1k 1% 0.25W metal film,"R1,R3",2,4,50,C57435,MFR0W4F1001A50,UNI-ROYAL,
+10k 1% 0.25W metal film,R2,1,2,50,C57436,MFR0W4F1002A50,UNI-ROYAL,
+Female header 1x22 2.54mm H8.5,X1 X2 (ESP32),2,4,5,C41376161,HC-PM254-8.5H-1x22PZ,Hong Cheng,
+Female header 1x08 2.54mm H8.5,X3 X4 (TMC2209),2,4,29,C22373894,HC-PM254-8.5H-1x8PZ,Hong Cheng,
+Pin header 1x40 2.54mm (break into 1x2),"JP1,JP2,J4",3x 1x2,6x 1x2,5,C2337,2.54-1*40P,BOOMELE,one strip is enough for both boards
+Jumper cap 2.54mm,X5 X6,2,4,50,C5305,2.54,BOOMELE,
+Terminal block header 2P 5.08mm right angle,J1,1,2,10,C3697,WJ2EDGRC-5.08-02P-14-00A,KANGNEX,optional - instead of Weidmuller SL 5.08/2/90
+Terminal block header 4P 5.08mm right angle,"J2,J3",2,4,5,C8446,WJ2EDGRC-5.08-04P-14-00A,KANGNEX,optional - instead of Weidmuller SL 5.08/4/90
+Terminal block plug 2P 5.08mm (screw),J1 plug,1,2,5,C71370,WJ2EDGK-5.08-02P-14-00A,KANGNEX,optional - instead of Weidmuller BL 5.08/2
+Terminal block plug 4P 5.08mm (screw),"J2,J3 plug",2,4,5,C71372,WJ2EDGK-5.08-04P-14-00A,KANGNEX,optional - instead of Weidmuller BL 5.08/4
