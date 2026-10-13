@@ -2,6 +2,7 @@
 #include "config.h"
 #include "settings.h"
 #include "motion.h"
+#include "camera.h"
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <LittleFS.h>
@@ -58,6 +59,7 @@ static void sendStatus() {
   JsonDocument d;
   d["type"] = "status";
   Motion::fillStatus(d["m"].to<JsonObject>());
+  Camera::fillStatus(d["cam"].to<JsonObject>());
 
   JsonObject w = d["w"].to<JsonObject>();
   bool sta = WiFi.status() == WL_CONNECTED;
@@ -158,6 +160,9 @@ static void handleCommand(const char *txt) {
   else if (!strcmp(cmd, "jogRelease")) Motion::cmdJogRelease();
   else if (!strcmp(cmd, "cycle")) err = Motion::cmdStartProgram(true);
   else if (!strcmp(cmd, "single")) err = Motion::cmdStartProgram(false);
+  else if (!strcmp(cmd, "camPair")) err = Camera::cmdPair();
+  else if (!strcmp(cmd, "camForget")) { Camera::cmdForget(); Net::sendMsg("Camera forgotten", false); sendSettings(); }
+  else if (!strcmp(cmd, "camShot")) err = Camera::cmdTestShot();
 
   else if (!strcmp(cmd, "saveMotion")) {
     Settings::applyMotion(doc["s"].as<JsonObjectConst>());
@@ -197,6 +202,7 @@ static void handleCommand(const char *txt) {
   }
   else if (!strcmp(cmd, "factoryReset")) {
     Motion::cmdDisable();
+    Camera::cmdForget();
     Settings::factoryReset();
     Net::sendMsg("Factory settings restored, restarting…", false);
     delay(500);

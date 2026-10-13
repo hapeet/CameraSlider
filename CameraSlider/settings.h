@@ -32,6 +32,18 @@ struct Config {
   // --- WiFi klient ---
   char ssid[33];
   char pass[65];
+
+  // --- fotografování (BLE spoušť Canon) – přidáno ve v3, musí zůstat na konci ---
+  bool photoOn;                 // v automatickém režimu fotit
+  bool photoSlow;               // false = v bodě fotky zastavit, true = jen zpomalit
+  bool photoBack;               // fotit i při jízdě zpět (Do→Od)
+  float photoStep;              // mm  vzdálenost mezi snímky
+  float photoSlowSpeed;         // mm/s rychlost průjezdu bodem fotky
+  float photoPre;               // s   před snímkem (stání / pomalá jízda)
+  float photoPost;              // s   po snímku (stání / pomalá jízda)
+  char camAddr[18];             // BLE adresa spárovaného fotoaparátu, "" = žádný
+  uint8_t camAddrType;
+  char camName[32];
 };
 
 extern Config cfg;
@@ -44,4 +56,5 @@ namespace Settings {
   void toJson(JsonObject o);
   void applyMotion(JsonObjectConst o);
   void applyConfig(JsonObjectConst o, bool &needRehome);
+  void setCamera(const char *addr, uint8_t type, const char *name);   // "" = zapomenout
 }

@@ -54,7 +54,9 @@ function onStatus(x) {
   $('spd').textContent = f1(Math.abs(m.speed || 0)) + ' mm/s';
   $('tgt').textContent = homed ? f1(m.target) + ' mm' : '–';
   $('cyc').textContent = m.state === 'Program' ? `${m.done} / ${m.total || '∞'}` : '–';
-  $('wait').textContent = m.waitLeft > 0 ? f1(m.waitLeft) + ' s' : '–';
+  $('wait').textContent = m.waitLeft > 0 ? (m.shotWait ? (m.shotWait === 'pre' ? 'before shot ' : 'after shot ') : '') + f1(m.waitLeft) + ' s' : '–';
+  $('shots').textContent = m.shots !== undefined ? m.shots + (m.shotsMissed ? ` (${m.shotsMissed} skipped)` : '') : '–';
+  onCamera(x.cam || {});
   $('hall').innerHTML = m.hall ? '<span class="badge warn">ACTIVE</span>' : 'free';
   $('drv').innerHTML = (m.driver ? '<span class="badge ok">OK</span>' : '<span class="badge err">UART error</span>') +
     (m.drvFails ? ` <span class="hint" title="UART read failures since boot">${m.drvFails}×</span>` : '');
@@ -74,6 +76,21 @@ function onStatus(x) {
   else wi += 'Network: not configured';
   $('wifiInfo').innerHTML = wi;
 }
+const CAM = {
+  none: ['Not paired', 'err'], idle: ['Not connected', 'warn'], pairing: ['Pairing…', 'warn'],
+  connecting: ['Connecting…', 'warn'], connected: ['Connected', 'ok'],
+};
+function onCamera(c) {
+  const [t, cls] = CAM[c.st] || ['–', ''];
+  $('camSt').textContent = t;
+  $('camSt').className = 'badge ' + cls;
+  $('camStat').innerHTML = `<span class="badge ${cls}">${t}</span>`;
+  $('camName').textContent = c.name ? c.name + (c.shots ? ` · ${c.shots} shots since boot` : '') : '';
+  $('bCamShot').disabled = c.st !== 'connected';
+  $('bCamForget').disabled = c.st === 'none';
+  $('bCamPair').textContent = c.st === 'pairing' ? 'Searching…' : (c.st === 'none' ? 'Pair camera' : 'Pair again');
+}
+
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 // ---------------- nastavení ----------------
@@ -94,6 +111,7 @@ function onSettings(s) {
   drawRange();
   updateSpm();
   updateCountVis();
+  updatePhoto();
 }
 
 function collect(group) {
@@ -134,6 +152,34 @@ function updateSpm() {
 function updateCountVis() {
   $('cntWrap').style.display = $('ci1').checked ? 'none' : '';
 }
+
+function updatePhoto() {
+  const m = collect('motion');
+  const slow = $('ps1').checked;
+  $('photoBox').classList.toggle('dim', !m.photoOn);
+  $('slowWrap').style.display = slow ? '' : 'none';
+  $('preLbl').firstChild.textContent = slow ? 'Slow run before shot [s]' : 'Wait before shot [s]';
+  $('postLbl').firstChild.textContent = slow ? 'Slow run after shot [s]' : 'Wait after shot [s]';
+
+  const len = Math.abs((m.rangeTo || 0) - (m.rangeFrom || 0));
+  if (!(m.photoStep > 0) || !len) { $('photoInfo').textContent = ''; return; }
+  const n = Math.floor(len / m.photoStep + 0.001) + 1;
+  const last = (n - 1) * m.photoStep;
+  let t = `${n} shots per pass (From + every ${f1(m.photoStep)} mm)`;
+  if (len - last > 0.05) t += ` – last shot ${f1(len - last)} mm before “To”`;
+  if (slow) {
+    const v = Math.min(m.photoSlowSpeed || 0, m.speedOut || 0);
+    t += `. Around each point the carriage slows to ${v} mm/s for ${f1(v * ((m.photoPre || 0) + (m.photoPost || 0)))} mm and fires while passing it.`;
+    if (v * ((m.photoPre || 0) + (m.photoPost || 0)) >= m.photoStep) t += ' Slow zones overlap – the carriage will stay slow the whole way.';
+  } else {
+    const per = (m.photoPre || 0) + Math.max(m.photoPost || 0, 0.25);
+    const total = n * per + len / (m.speedOut || 1);
+    t += `. Carriage stops at each point. One pass takes ≈ ${fmtTime(total)} (without acceleration).`;
+  }
+  $('photoInfo').textContent = t;
+}
+const fmtTime = s => s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.round(s % 3600 / 60)} min`
+  : s >= 60 ? `${Math.floor(s / 60)} min ${Math.round(s % 60)} s` : `${Math.round(s)} s`;
 
 // ---------------- WiFi scan ----------------
 function onScan(list) {
@@ -195,10 +241,15 @@ qa('[data-g="motion"]').forEach(el => el.addEventListener('change', () => {
 }));
 qa('[data-k="rangeFrom"],[data-k="rangeTo"]').forEach(el => el.addEventListener('input', drawRange));
 qa('[name="ci"]').forEach(el => el.addEventListener('change', updateCountVis));
+qa('[data-g="motion"]').forEach(el => el.addEventListener('input', updatePhoto));
 qa('[data-g="config"]').forEach(el => el.addEventListener('input', updateSpm));
 
 $('bCycle').onclick = () => { saveMotion(); send({ cmd: 'cycle' }); };
 $('bSingle').onclick = () => { saveMotion(); send({ cmd: 'single' }); };
+
+$('bCamPair').onclick = () => send({ cmd: 'camPair' });
+$('bCamShot').onclick = () => send({ cmd: 'camShot' });
+$('bCamForget').onclick = () => { if (confirm('Forget the paired camera? You will have to pair it again.')) send({ cmd: 'camForget' }); };
 
 $('bCfg').onclick = () => send({ cmd: 'saveConfig', s: collect('config') });
 $('bFactory').onclick = () => { if (confirm('Restore factory settings? Everything including WiFi will be erased.')) send({ cmd: 'factoryReset' }); };

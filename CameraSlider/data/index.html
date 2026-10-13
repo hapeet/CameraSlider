@@ -44,6 +44,8 @@
       <div class="stat"><b>Target</b><span id="tgt">–</span></div>
       <div class="stat"><b>Cycles</b><span id="cyc">–</span></div>
       <div class="stat"><b>Wait</b><span id="wait">–</span></div>
+      <div class="stat"><b>Shots</b><span id="shots">–</span></div>
+      <div class="stat"><b>Camera</b><span id="camStat">–</span></div>
       <div class="stat"><b>Sensor</b><span id="hall">–</span></div>
       <div class="stat"><b>Driver</b><span id="drv">–</span></div>
     </div>
@@ -99,6 +101,29 @@
     </div>
     <div class="hint mt">Parameters are saved automatically. Speeds and waits apply immediately, the From/To range on next start.</div>
 
+    <div class="sub mt">
+      <div class="row between">
+        <h3>📷 Photos while moving</h3>
+        <label class="c"><input type="checkbox" data-g="motion" data-k="photoOn"> Take photos</label>
+      </div>
+      <div id="photoBox">
+        <div class="grid grid5">
+          <label class="f">Distance between shots [mm]<input type="number" step="0.1" min="0.1" data-g="motion" data-k="photoStep"></label>
+          <div class="f">At each shot point
+            <div class="seg">
+              <input type="radio" name="ps" id="ps0" value="0" data-g="motion" data-k="photoSlow"><label for="ps0">Stop</label>
+              <input type="radio" name="ps" id="ps1" value="1" data-g="motion" data-k="photoSlow"><label for="ps1">Slow down</label>
+            </div>
+          </div>
+          <label class="f" id="slowWrap">Speed at shot point [mm/s]<input type="number" step="0.01" min="0.01" data-g="motion" data-k="photoSlowSpeed"></label>
+          <label class="f" id="preLbl">Wait before shot [s]<input type="number" step="0.1" min="0" data-g="motion" data-k="photoPre"></label>
+          <label class="f" id="postLbl">Wait after shot [s]<input type="number" step="0.1" min="0" data-g="motion" data-k="photoPost"></label>
+        </div>
+        <label class="c mt"><input type="checkbox" data-g="motion" data-k="photoBack"> Also shoot on the way back (To → From)</label>
+        <div class="hint" id="photoInfo"></div>
+      </div>
+    </div>
+
     <div class="grid mt">
       <div class="sub">
         <h3>Cycle mode</h3>
@@ -118,6 +143,25 @@
         <div class="hint">The carriage first moves to “From”.</div>
         <button class="ok needhome" id="bSingle">▶ Start single cycle</button>
       </div>
+    </div>
+  </section>
+
+  <!-- ===================== CAMERA ===================== -->
+  <section class="card">
+    <h2>Camera – Bluetooth remote</h2>
+    <div class="row between">
+      <div><span class="badge" id="camSt">–</span> <span id="camName"></span></div>
+      <div class="row">
+        <button id="bCamPair">Pair camera</button>
+        <button class="pri" id="bCamShot">📷 Test shot</button>
+        <button id="bCamForget">Forget</button>
+      </div>
+    </div>
+    <div class="hint mt">
+      Canon 77D (and other BR-E1 compatible bodies): <b>MENU → Wireless communication settings → Bluetooth function → Remote</b>,
+      then open <b>Pairing</b> and press “Pair camera” here. Once paired the slider reconnects automatically whenever the camera is on.<br>
+      Tips: set the lens to <b>MF</b> (in AF the shot waits for focus and may not fire), set <b>Auto power off → Disable</b>
+      and shutter-release mode to single shooting.
     </div>
   </section>
 

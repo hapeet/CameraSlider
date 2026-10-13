@@ -38,3 +38,12 @@
 #define HOME_ACCEL_MMS2     200.0f   // brzdění při homingu (malý přejezd čidla)
 #define JOG_TIMEOUT_MS      600      // ruční posuv se zastaví, když UI přestane posílat keepalive
 #define STATUS_INTERVAL_MS  100      // jak často posílat stav do UI
+
+// ============================================================================
+//  Fotoaparát – Bluetooth dálková spoušť (emulace Canon BR-E1)
+// ============================================================================
+#define BLE_NAME                "CameraSlider"   // jméno, které uvidí fotoaparát
+#define CAM_PRESS_MS            200      // jak dlouho držet spoušť
+#define CAM_CONNECT_TIMEOUT_MS  4000     // jeden pokus o připojení
+#define CAM_RETRY_MS            5000     // spárovaný, ale nepřipojený -> zkusit znovu za...
+#define CAM_PAIR_TIMEOUT_MS     60000    // jak dlouho hledat fotoaparát v režimu párování

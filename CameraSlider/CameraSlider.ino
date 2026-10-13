@@ -7,14 +7,20 @@
     - ESPAsyncWebServer  (ESP32Async)
     - AsyncTCP           (ESP32Async)
     - ArduinoJson        (Benoit Blanchon, v7)
+    - NimBLE-Arduino     (h2zero, v2.x) – Bluetooth spoušť Canon
 
   Web UI je v LittleFS (složka data/) – nahrát přes plugin arduino-littlefs-upload.
   UI: WiFi "CameraSlider" -> http://cameraslider.local (nebo http://192.168.4.1)
+
+  Fotoaparát (Canon 77D a další s podporou BR-E1): v UI sekce Camera -> Pair,
+  na fotoaparátu: Nastavení bezdrátové komunikace -> Funkce Bluetooth -> Dálkové ovládání
+  -> Párování.
 */
 #include "config.h"
 #include "settings.h"
 #include "motion.h"
 #include "net.h"
+#include "camera.h"
 
 static bool jumperWasPresent = false;
 static uint32_t jumperOpenSince = 0;
@@ -35,6 +41,7 @@ static void checkJumper() {
   if (millis() - jumperOpenSince > 300) {  // odrušení
     Serial.println("[reset] jumper rozpojen -> tovární nastavení");
     Motion::cmdDisable();
+    Camera::cmdForget();
     Settings::factoryReset();
     Net::sendMsg("Reset jumper removed – settings cleared, restarting…", true);
     delay(500);
@@ -60,10 +67,13 @@ void setup() {
   Motion::begin();
   Net::begin();
   Motion::setNotifier(Net::sendMsg);
+  Camera::begin();
+  Camera::setNotifier(Net::sendMsg);
 }
 
 void loop() {
   Motion::update();
   Net::update();
+  Camera::update();
   checkJumper();
 }

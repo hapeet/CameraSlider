@@ -1,6 +1,7 @@
 #include "motion.h"
 #include "config.h"
 #include "settings.h"
+#include "camera.h"
 #include <FastAccelStepper.h>
 #include <TMCStepper.h>
 
@@ -27,6 +28,23 @@ static bool pCycleMode, pOneWay;
 static uint32_t pDone, pTarget;   // pTarget 0 = nekonečně
 static float pA, pB;              // Od, Do (zafixováno při startu)
 static uint32_t waitStart, waitMs;
+
+// --- fotografování během jízdy Od↔Do ---
+// Body snímků: pA + k·krok (k = 0..shotN), stejné pro jízdu tam i zpět.
+enum class ShotPhase : uint8_t { Move, Pre, Post };
+static bool pPhoto, pSlow;        // zafixováno při startu
+static float pStep;
+static int32_t shotN;
+static bool legPhoto;             // aktuální jízda fotí
+static float legS, legE;          // začátek / konec jízdy
+static int legDir;                // +1 / −1 (směr osy)
+static int32_t shotK, shotDK;     // příští bod a směr indexu
+static ShotPhase sPhase;
+static uint32_t sStart, sMs;
+static float lastShotPos;         // poslední bod snímku (NAN = žádný)
+static float postEndU;            // konec pomalého úseku za posledním snímkem
+static bool slowNow;              // právě je nastavena pomalá rychlost
+static uint32_t shotsDone, shotsMissed;
 
 // --- ruční posuv ---
 static int jogDir = 0;
@@ -317,6 +335,162 @@ void Motion::cmdJogRelease() {
 }
 
 // ============================================================================
+//  Fotografování během jízdy
+//  Zastavit: najet na bod -> čekání „před“ -> snímek -> čekání „po“ -> další bod
+//  Zpomalit: jízda plnou rychlostí, před bodem zpomalení tak, aby vozík jel
+//            pomalou rychlostí „před“ s před bodem a „po“ s za ním; snímek se
+//            spustí při průjezdu bodem.
+// ============================================================================
+// tolerance polohy bodu: alespoň ~půl kroku (při hrubém mikrokrokování je krok velký)
+static float shotEps() { return max(0.02f, 0.6f / spm()); }
+
+static float shotPos(int32_t k) { return pA + k * pStep * (pB >= pA ? 1 : -1); }
+static bool hasShot() { return shotK >= 0 && shotK <= shotN; }
+static float legU(float mm) { return (mm - legS) * legDir; }   // ujetá dráha od začátku jízdy
+static float cruiseSpeed() { return legDir > 0 ? cfg.speedOut : cfg.speedIn; }
+static float slowSpeed() { return min(cfg.photoSlowSpeed, cruiseSpeed()); }
+
+static void fireShot(float at) {
+  lastShotPos = at;
+  shotsDone++;
+  if (!Camera::shoot()) {
+    if (!shotsMissed) emit("Camera not connected – shot skipped", true);
+    shotsMissed++;
+  }
+}
+
+static void startShotWait(ShotPhase ph, float s) {
+  sPhase = ph;
+  sMs = (uint32_t)(s * 1000.0f);
+  sStart = millis();
+}
+
+// otočka na konci dráhy: bod na startu jízdy už byl vyfocen -> nefotit dvakrát
+static void skipDoneShot() {
+  if (!hasShot() || isnan(lastShotPos)) return;
+  float p = shotPos(shotK);
+  if (fabsf(p - legS) < shotEps() && fabsf(p - lastShotPos) < shotEps()) shotK += shotDK;
+}
+
+// --- režim Zastavit ---
+static bool stopNext() {   // false = jízda dokončena
+  skipDoneShot();
+  if (hasShot()) {
+    float p = shotPos(shotK);
+    if (fabsf(curMm() - p) < shotEps()) startShotWait(ShotPhase::Pre, cfg.photoPre);
+    else { sPhase = ShotPhase::Move; startLeg(p); }
+    return true;
+  }
+  if (fabsf(curMm() - legE) >= shotEps()) { sPhase = ShotPhase::Move; startLeg(legE); return true; }
+  return false;
+}
+
+// --- režim Zpomalit ---
+static void setLegSpeed(bool slow) {
+  if (slow == slowNow) return;
+  slowNow = slow;
+  uint32_t hz = (uint32_t)constrain((slow ? slowSpeed() : cruiseSpeed()) * spm(), 1.0f, (float)MAX_STEP_HZ);
+  stepper->setSpeedInHz(hz);
+  stepper->applySpeedAcceleration();
+}
+
+static void slowStartMove() {
+  slowNow = !isnan(postEndU) && postEndU > 0;   // za snímkem na startu se jede pomalu
+  sPhase = ShotPhase::Move;
+  moveToMm(legE, slowNow ? slowSpeed() : cruiseSpeed());
+}
+
+static void slowRegulate() {
+  float u = legU(curMm());
+  float vs = slowSpeed();
+  bool slow = !isnan(postEndU) && u < postEndU;
+  if (!slow && hasShot()) {
+    float zone = legU(shotPos(shotK)) - vs * cfg.photoPre;   // začátek pomalého úseku
+    float v = fabsf(stepper->getCurrentSpeedInMilliHz() / 1000.0f / spm());
+    float brake = max(0.0f, v * v - vs * vs) / (2.0f * cfg.accel);
+    float margin = cfg.smooth + v * 0.03f + 0.2f;   // vyhlazení rampy + zpoždění smyčky
+    slow = u >= zone - brake - margin;
+  }
+  setLegSpeed(slow);
+}
+
+// Začátek jízdy S -> E. false = jízda bez pohybu dokončena
+static bool startPhotoLeg(bool toB) {
+  legS = toB ? pA : pB;
+  legE = toB ? pB : pA;
+  legDir = legE >= legS ? 1 : -1;
+  shotK = toB ? 0 : shotN;
+  shotDK = toB ? 1 : -1;
+  postEndU = NAN;
+  skipDoneShot();
+
+  if (!pSlow) return stopNext();
+  if (hasShot() && fabsf(shotPos(shotK) - legS) < shotEps()) {
+    startShotWait(ShotPhase::Pre, cfg.photoPre);   // snímek na startu – ve stoje
+  } else {
+    slowStartMove();
+  }
+  return true;
+}
+
+// true = jízda dokončena
+static bool updatePhotoLeg() {
+  if (!pSlow) {
+    switch (sPhase) {
+      case ShotPhase::Move:
+        if (running()) return false;
+        if (hasShot() && fabsf(curMm() - shotPos(shotK)) < shotEps()) {
+          startShotWait(ShotPhase::Pre, cfg.photoPre);
+          return false;
+        }
+        return !stopNext();
+      case ShotPhase::Pre:
+        if (millis() - sStart < sMs) return false;
+        fireShot(shotPos(shotK));
+        startShotWait(ShotPhase::Post, max(cfg.photoPost, (CAM_PRESS_MS + 50) / 1000.0f));
+        return false;
+      case ShotPhase::Post:
+        if (millis() - sStart < sMs) return false;
+        shotK += shotDK;
+        return !stopNext();
+    }
+    return true;
+  }
+
+  switch (sPhase) {
+    case ShotPhase::Pre:   // snímek na startu jízdy
+      if (millis() - sStart < sMs) return false;
+      fireShot(shotPos(shotK));
+      postEndU = legU(shotPos(shotK)) + slowSpeed() * cfg.photoPost;
+      shotK += shotDK;
+      slowStartMove();
+      return false;
+
+    case ShotPhase::Move:
+      if (hasShot() && legU(curMm()) >= legU(shotPos(shotK)) - shotEps()) {
+        float p = shotPos(shotK);
+        fireShot(p);
+        postEndU = legU(p) + slowSpeed() * cfg.photoPost;
+        shotK += shotDK;
+      }
+      if (running()) {
+        slowRegulate();
+        return false;
+      }
+      // dojeto na konec – byl-li tam snímek, počkat dobu „po“
+      if (!isnan(lastShotPos) && fabsf(lastShotPos - legE) < shotEps() && cfg.photoPost > 0) {
+        startShotWait(ShotPhase::Post, cfg.photoPost);
+        return false;
+      }
+      return true;
+
+    case ShotPhase::Post:
+      return millis() - sStart >= sMs;
+  }
+  return true;
+}
+
+// ============================================================================
 //  Program: cyklický režim / 1 cyklus
 //  Najetí na Od -> Od→Do -> čekání -> Do→Od -> čekání -> ...
 // ============================================================================
@@ -326,6 +500,16 @@ const char *Motion::cmdStartProgram(bool cycle) {
   pA = clampPos(cfg.rangeFrom);
   pB = clampPos(cfg.rangeTo);
   if (fabsf(pA - pB) < 0.1f) return "From–To range is zero";
+
+  pPhoto = cfg.photoOn;
+  if (pPhoto) {
+    if (!Camera::isConnected()) return "Camera not connected – pair it in the Camera section or turn photos off";
+    pSlow = cfg.photoSlow;
+    pStep = max(cfg.photoStep, 0.1f);
+    shotN = (int32_t)floorf(fabsf(pB - pA) / pStep + 0.001f);
+  }
+  lastShotPos = NAN;
+  shotsDone = shotsMissed = 0;
 
   pCycleMode = cycle;
   pOneWay = !cycle && cfg.singleOneWay;
@@ -348,32 +532,64 @@ static void startWait(bool atB) {
 
 static void finishProgram() {
   state = MotionState::Idle;
-  emit("Program finished", false);
+  if (pPhoto && shotsMissed) {
+    char m[112];
+    snprintf(m, sizeof(m), "Program finished – %lu of %lu shots skipped (camera not connected)",
+             (unsigned long)shotsMissed, (unsigned long)shotsDone);
+    emit(m, true);
+  } else {
+    emit("Program finished", false);
+  }
+}
+
+// rozjezd jedné jízdy programu (Od→Do / Do→Od), s fotografováním nebo bez
+static bool beginLeg(bool toB) {   // false = není kam jet
+  legPhoto = pPhoto && (toB || cfg.photoBack);
+  if (legPhoto) return startPhotoLeg(toB);
+  startLeg(toB ? pB : pA);
+  return true;
+}
+
+static bool legDone() {
+  return legPhoto ? updatePhotoLeg() : !running();
+}
+
+static void endLegB() {
+  if (pOneWay) finishProgram();
+  else startWait(true);
+}
+
+static void endLegA() {
+  pDone++;
+  if (pTarget && pDone >= pTarget) finishProgram();
+  else startWait(false);
 }
 
 static void updateProgram() {
   switch (pPhase) {
     case ProgPhase::ToStart:
-      if (!running()) { pPhase = ProgPhase::ToB; startLeg(pB); }
+      if (!running()) {
+        pPhase = ProgPhase::ToB;
+        if (!beginLeg(true)) endLegB();
+      }
       break;
     case ProgPhase::ToB:
-      if (!running()) {
-        if (pOneWay) finishProgram();
-        else startWait(true);
-      }
+      if (legDone()) endLegB();
       break;
     case ProgPhase::WaitB:
-      if (millis() - waitStart >= waitMs) { pPhase = ProgPhase::ToA; startLeg(pA); }
-      break;
-    case ProgPhase::ToA:
-      if (!running()) {
-        pDone++;
-        if (pTarget && pDone >= pTarget) finishProgram();
-        else startWait(false);
+      if (millis() - waitStart >= waitMs) {
+        pPhase = ProgPhase::ToA;
+        if (!beginLeg(false)) endLegA();
       }
       break;
+    case ProgPhase::ToA:
+      if (legDone()) endLegA();
+      break;
     case ProgPhase::WaitA:
-      if (millis() - waitStart >= waitMs) { pPhase = ProgPhase::ToB; startLeg(pB); }
+      if (millis() - waitStart >= waitMs) {
+        pPhase = ProgPhase::ToB;
+        if (!beginLeg(true)) endLegB();
+      }
       break;
   }
 }
@@ -477,6 +693,17 @@ void Motion::fillStatus(JsonObject o) {
     if (pPhase == ProgPhase::WaitA || pPhase == ProgPhase::WaitB) {
       uint32_t el = millis() - waitStart;
       o["waitLeft"] = r2(el < waitMs ? (waitMs - el) / 1000.0f : 0);
+    }
+    if (pPhoto) {
+      o["shots"] = shotsDone;
+      o["shotsMissed"] = shotsMissed;
+      o["shotsPerPass"] = shotN + 1;
+      bool legRun = pPhase == ProgPhase::ToB || pPhase == ProgPhase::ToA;
+      if (legRun && legPhoto && sPhase != ShotPhase::Move) {
+        uint32_t el = millis() - sStart;
+        o["shotWait"] = sPhase == ShotPhase::Pre ? "pre" : "post";
+        o["waitLeft"] = r2(el < sMs ? (sMs - el) / 1000.0f : 0);
+      }
     }
   }
 }
